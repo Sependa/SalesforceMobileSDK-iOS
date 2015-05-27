@@ -63,6 +63,7 @@ NSString *CSFNetworkInstanceKey(SFUserAccount *user) {
 
 
 @implementation CSFNetwork
+@synthesize outputCachePointers;
 
 #pragma mark -
 #pragma mark object lifecycle
