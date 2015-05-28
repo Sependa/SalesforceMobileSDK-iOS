@@ -105,6 +105,16 @@ static NSMutableDictionary *SharedInstances = nil;
     return instance;
 }
 
++ (void)cleanupNetworkForUserAccount:(SFUserAccount *)userAccount {
+    @synchronized (SharedInstances) {
+        NSString *key = CSFNetworkInstanceKey(userAccount);
+        [SharedInstances removeObjectForKey:key];
+    }
+}
+
+#pragma mark -
+#pragma mark object lifecycle
+
 - (id)init {
     self = [super init];
     if (self) {
@@ -122,13 +132,15 @@ static NSMutableDictionary *SharedInstances = nil;
         self.actionQueue = dispatch_queue_create("com.salesforce.network.action", DISPATCH_QUEUE_SERIAL);
         
         NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
-        #ifdef SFPlatformiOS
+#ifdef SFPlatformiOS
 		[notificationCenter addObserver:self
 												 selector:@selector(applicationDidBecomeActive:)
 													 name:UIApplicationDidBecomeActiveNotification
 												   object:nil];
         #endif
         [notificationCenter postNotificationName:CSFNetworkInitializedNotification object:self];
+        [notificationCenter addObserver:self selector:@selector(userWillLogOutNotification:)
+                                   name:kSFUserWillLogoutNotification object:nil];
     }
     return self;
 }
@@ -210,7 +222,7 @@ static NSMutableDictionary *SharedInstances = nil;
         action.duplicateParentAction = duplicateAction;
         [action addDependency:duplicateAction];
     }
-    
+
     [self.queue addOperation:action];
 }
 
@@ -219,7 +231,7 @@ static NSMutableDictionary *SharedInstances = nil;
         if (completionBlock) {
             completionBlock(nil, nil);
         }
-        
+
         return;
     }
 
@@ -237,7 +249,7 @@ static NSMutableDictionary *SharedInstances = nil;
             [self executeAction:action];
         }
     }
-    
+
     [self.queue addOperation:parentOperation];
 }
 
@@ -245,6 +257,7 @@ static NSMutableDictionary *SharedInstances = nil;
     NSPredicate *predicate = [NSPredicate predicateWithFormat:@"context = %@", context];
     return [self.queue.operations filteredArrayUsingPredicate:predicate];
 }
+
 - (void)cancelAllActions {
     [self.queue cancelAllOperations];
 }
@@ -290,6 +303,13 @@ static NSMutableDictionary *SharedInstances = nil;
 //       This way we don't ahve to reference UIKit from the network stack, and the consumer
 //       is capable of handling the unauthorized response.
 - (void)receivedDevicedUnauthorizedError:(CSFAction *)action {
+}
+
+#pragma mark - Handling Login State
+
+- (void)userWillLogOutNotification:(NSNotification *)notification {
+    SFUserAccount *userAccount = notification.userInfo[kSFUserAccountKey];
+    [[self class] cleanupNetworkForUserAccount:userAccount];
 }
 
 @end
