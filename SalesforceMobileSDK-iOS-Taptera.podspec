@@ -11,9 +11,9 @@ Pod::Spec.new do |s|
   s.platform     = :ios, "7.0"
 
   s.source       = { :git => "https://github.com/Taptera/SalesforceMobileSDK-iOS.git",
-                     :commit => "36b2f6f6aa050351c4c6ac38fecbd29af7d961d1",
+                     :commit => "dfeec653c98fe89474953cddc32cd2309d2bcd99",
                      :submodules => true }
-  
+
   s.requires_arc = true
 
   s.subspec 'SalesforceCommonUtils' do |commonutils|
