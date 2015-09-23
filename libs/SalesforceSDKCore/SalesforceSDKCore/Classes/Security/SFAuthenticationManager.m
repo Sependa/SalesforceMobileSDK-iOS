@@ -58,10 +58,6 @@ NSString * const kSFUserLogoutNotification = @"kSFUserLogoutOccurred";
 NSString * const kSFUserLoggedInNotification = @"kSFUserLoggedIn";
 NSString * const kSFAuthenticationManagerFinishedNotification = @"kSFAuthenticationManagerFinishedNotification";
 
-// Public notification name user info keys
-
-NSString * const kSFUserAccountKey = @"account";
-
 // Auth error handler name constants
 
 static NSString * const kSFInvalidCredentialsAuthErrorHandler = @"InvalidCredentialsErrorHandler";
@@ -435,7 +431,7 @@ static Class InstanceClass = nil;
     
     [self log:SFLogLevelInfo format:@"Logging out user '%@'.", user.userName];
     
-    NSDictionary *userInfo = @{ kSFUserAccountKey: user };
+    NSDictionary *userInfo = @{ @"account": user };
     [[NSNotificationCenter defaultCenter] postNotificationName:kSFUserWillLogoutNotification
                                                         object:self
                                                       userInfo:userInfo];
@@ -451,16 +447,15 @@ static Class InstanceClass = nil;
     // If it's not the current user, this is really just about clearing the account data and
     // user-specific state for the given account.
     if (![user isEqual:userAccountManager.currentUser]) {
+        [[SFPushNotificationManager sharedInstance] unregisterSalesforceNotifications:user];
         [userAccountManager deleteAccountForUser:user error:nil];
         [self revokeRefreshToken:user];
-        [[SFPushNotificationManager sharedInstance] unregisterSalesforceNotifications:user];
         return;
     }
     
     // Otherwise, the current user is being logged out.  Supply the user account to the
     // "Will Logout" notification before the credentials are revoked.  This will ensure
     // that databases and other resources keyed off of the userID can be destroyed/cleaned up.
-    
     if ([SFPushNotificationManager sharedInstance].deviceSalesforceId) {
         [[SFPushNotificationManager sharedInstance] unregisterSalesforceNotifications];
     }
@@ -475,9 +470,7 @@ static Class InstanceClass = nil;
     userAccountManager.currentUser = nil;
     [self didChangeValueForKey:@"haveValidSession"];
     
-    NSNotification *logoutNotification = [NSNotification notificationWithName:kSFUserLogoutNotification
-                                                                       object:self
-                                                                     userInfo:userInfo];
+    NSNotification *logoutNotification = [NSNotification notificationWithName:kSFUserLogoutNotification object:self];
     [[NSNotificationCenter defaultCenter] postNotification:logoutNotification];
     [self enumerateDelegates:^(id<SFAuthenticationManagerDelegate> delegate) {
         if ([delegate respondsToSelector:@selector(authManagerDidLogout:)]) {
@@ -659,9 +652,6 @@ static Class InstanceClass = nil;
     [[SFUserAccountManager sharedInstance] saveAccounts:nil];
 
     // Notify the session is ready
-    [self willChangeValueForKey:@"currentUser"];
-    [self didChangeValueForKey:@"currentUser"];
-    
     [self willChangeValueForKey:@"haveValidSession"];
     [self didChangeValueForKey:@"haveValidSession"];
     
@@ -828,10 +818,8 @@ static Class InstanceClass = nil;
     
     [SFAuthenticationManager removeAllCookies];
     [self.coordinator stopAuthentication];
-    self.coordinator.delegate = nil;
-    self.idCoordinator.delegate = nil;
-    SFRelease(_idCoordinator);
-    SFRelease(_coordinator);
+    self.idCoordinator.idData = nil;
+    self.coordinator.credentials = nil;
 }
 
 - (void)cleanupStatusAlert
@@ -1061,16 +1049,6 @@ static Class InstanceClass = nil;
             [delegate authManagerWillBeginAuthWithView:self];
         }
     }];
-
-    // Ensure this runs on the main thread.  Has to be sync, because the coordinator expects the auth view
-    // to be added to a superview by the end of this method.
-    if (![NSThread isMainThread]) {
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            self.authViewHandler.authViewDisplayBlock(self, view);
-        });
-    } else {
-        self.authViewHandler.authViewDisplayBlock(self, view);
-    }
 }
 
 - (void)oauthCoordinator:(SFOAuthCoordinator *)coordinator didStartLoad:(UIWebView *)view
@@ -1102,6 +1080,16 @@ static Class InstanceClass = nil;
             [delegate authManager:self willDisplayAuthWebView:view];
         }
     }];
+    
+    // Ensure this runs on the main thread.  Has to be sync, because the coordinator expects the auth view
+    // to be added to a superview by the end of this method.
+    if (![NSThread isMainThread]) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            self.authViewHandler.authViewDisplayBlock(self, view);
+        });
+    } else {
+        self.authViewHandler.authViewDisplayBlock(self, view);
+    }
 }
 
 - (void)oauthCoordinatorWillBeginAuthentication:(SFOAuthCoordinator *)coordinator authInfo:(SFOAuthInfo *)info {

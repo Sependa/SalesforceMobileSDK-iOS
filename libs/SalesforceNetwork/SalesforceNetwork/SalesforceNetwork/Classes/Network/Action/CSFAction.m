@@ -61,17 +61,17 @@ NSTimeInterval const CSFActionDefaultTimeOut = 3 * 60; // 3 minutes
         return nil;
     }
     
-    NSString *host = [action.enqueuedNetwork.account.credentials.instanceUrl host];
-    NSString *path = [NSMutableString stringWithFormat:@"%@%@", action.basePath, action.verb];
+    NSMutableString *baseUrlString = [NSMutableString stringWithString:[action.enqueuedNetwork.account.credentials.apiUrl absoluteString]];
+    NSMutableString *path = [NSMutableString stringWithFormat:@"%@%@", action.basePath, action.verb];
     
     // Make sure path is not empty
-    if (!host || host.length == 0) {
+    if (baseUrlString.length == 0) {
         *error = [NSError errorWithDomain:CSFNetworkErrorDomain
                                      code:CSFNetworkURLCredentialsError
-                                 userInfo:@{ NSLocalizedDescriptionKey: @"Network action must have an instance host",
+                                 userInfo:@{ NSLocalizedDescriptionKey: @"Network action must have an API URL",
                                              CSFNetworkErrorActionKey: action }];
         return nil;
-    } else if (!path || path.length == 0) {
+    } else if (path.length == 0) {
         *error = [NSError errorWithDomain:CSFNetworkErrorDomain
                                      code:CSFNetworkURLCredentialsError
                                  userInfo:@{ NSLocalizedDescriptionKey: @"Network action must have a valid path",
@@ -79,8 +79,10 @@ NSTimeInterval const CSFActionDefaultTimeOut = 3 * 60; // 3 minutes
         return nil;
     }
     
-    NSString *scheme = @"https";
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@://%@%@", scheme, host, path]];
+    if (![baseUrlString hasSuffix:@"/"]) [baseUrlString appendString:@"/"];
+    if ([path hasPrefix:@"/"]) [path deleteCharactersInRange:NSMakeRange(0, 1)];
+    NSString *urlString = [baseUrlString stringByAppendingString:path];
+    NSURL *url = [NSURL URLWithString:urlString];
     return url;
 }
 
@@ -352,9 +354,9 @@ NSTimeInterval const CSFActionDefaultTimeOut = 3 * 60; // 3 minutes
         return;
     }
     
-    [self willChangeValueForKey:@"executing"];
+    [self willChangeValueForKey:@"isExecuting"];
     _executing = YES;
-    [self didChangeValueForKey:@"executing"];
+    [self didChangeValueForKey:@"isExecuting"];
 
     // If this is a duplicate action, the parent must have just completed, so we can safely process our response based
     // on the result of that parent.  By calling the completion handler, the response will automatically be sent,
@@ -515,13 +517,13 @@ NSTimeInterval const CSFActionDefaultTimeOut = 3 * 60; // 3 minutes
 }
 
 - (void)completeOperationWithError:(NSError *)error {
-    [self willChangeValueForKey:@"executing"];
-    [self willChangeValueForKey:@"finished"];
+    [self willChangeValueForKey:@"isExecuting"];
+    [self willChangeValueForKey:@"isFinished"];
     _executing = NO;
     _finished = YES;
     self.error = error;
-    [self didChangeValueForKey:@"executing"];
-    [self didChangeValueForKey:@"finished"];
+    [self didChangeValueForKey:@"isExecuting"];
+    [self didChangeValueForKey:@"isFinished"];
     
     self.responseData = nil;
     

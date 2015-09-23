@@ -22,26 +22,10 @@
  WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import <Foundation/Foundation.h>
-#import "SFSyncState.h"
-#import "SFSmartSyncSyncManager.h"
+//  Logic unit tests contain unit test code that is designed to be linked into an independent test executable.
+//  See Also: http://developer.apple.com/iphone/library/documentation/Xcode/Conceptual/iphone_development/135-Unit_Testing_Applications/unit_testing_applications.html
 
-@interface SFSyncUpdateCallbackQueue : NSObject
+#import "SFSmartStoreTestCase.h"
 
-/** 
- Run sync
- */
-- (void)runSync:(SFSyncState*)sync syncManager:(SFSmartSyncSyncManager*)syncManager;
-
-/**
- Run re-sync
- */
-- (SFSyncState*)runReSync:(NSNumber*)syncId syncManager:(SFSmartSyncSyncManager*)syncManager;
-
-/**
- Get next sync update
- */
-- (SFSyncState*)getNextSyncUpdate;
-- (SFSyncState*)getNextSyncUpdate:(NSTimeInterval) maxWaitTime;
-
+@interface SFSmartStoreFullTextSearchTests : SFSmartStoreTestCase 
 @end

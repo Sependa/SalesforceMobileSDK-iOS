@@ -57,6 +57,7 @@ typedef void (^SyncFailBlock) (NSString* message, NSError* error);
 
 @property (nonatomic, strong) SFSmartStore *store;
 @property (nonatomic, strong) dispatch_queue_t queue;
+@property (nonatomic, strong) NSMutableSet *runningSyncIds;
 
 @end
 
@@ -124,8 +125,9 @@ static NSMutableDictionary *syncMgrList = nil;
 - (instancetype)initWithStore:(SFSmartStore *)store {
     self = [super init];
     if (self) {
+        self.runningSyncIds = [NSMutableSet new];
         self.store = store;
-        self.queue = dispatch_queue_create(kSyncManagerQueue,  NULL);
+        self.queue = dispatch_queue_create(kSyncManagerQueue,  DISPATCH_QUEUE_SERIAL);
         [[SFAuthenticationManager sharedManager] addDelegate:self];
         [SFSyncState setupSyncsSoupIfNeeded:self.store];
     }
@@ -164,6 +166,19 @@ static NSMutableDictionary *syncMgrList = nil;
         [sync save:weakSelf.store];
         
         [weakSelf log:SFLogLevelDebug format:@"Sync update:%@", sync];
+        
+        
+        switch (sync.status) {
+            case SFSyncStateStatusNew:
+                break; // should not happen
+            case SFSyncStateStatusRunning:
+                [weakSelf.runningSyncIds addObject:[NSNumber numberWithInteger:sync.syncId]];
+                break;
+            case SFSyncStateStatusDone:
+            case SFSyncStateStatusFailed:
+                [weakSelf.runningSyncIds removeObject:[NSNumber numberWithInteger:sync.syncId]];
+                break;
+        }
         
         if (updateBlock)
             updateBlock(sync);
@@ -209,6 +224,11 @@ static NSMutableDictionary *syncMgrList = nil;
 /** Resync
  */
 - (SFSyncState*) reSync:(NSNumber*)syncId updateBlock:(SFSyncSyncManagerUpdateBlock)updateBlock {
+    if ([self.runningSyncIds containsObject:syncId]) {
+        [self log:SFLogLevelError format:@"Cannot run reSync:%@:still running", syncId];
+        return nil;
+    }
+    
     SFSyncState* sync = [self getSyncStatus:(NSNumber *)syncId];
     
     if (sync == nil) {
@@ -219,11 +239,6 @@ static NSMutableDictionary *syncMgrList = nil;
         [self log:SFLogLevelError format:@"Cannot run reSync:%@:wrong type:%@", syncId, [SFSyncState syncTypeToString:sync.type]];
         return nil;
     }
-    if (sync.status != SFSyncStateStatusDone) {
-        [self log:SFLogLevelError format:@"Cannot run reSync:%@:not done:%@", syncId, [SFSyncState syncStatusToString:sync.status]];
-        return nil;
-    }
-    
     sync.totalSize = -1;
     [sync save:self.store];
     
@@ -376,6 +391,7 @@ static NSMutableDictionary *syncMgrList = nil;
     NSArray* dirtyRecordIds = [target getIdsOfRecordsToSyncUp:self soupName:soupName];
     NSUInteger totalSize = [dirtyRecordIds count];
     if (totalSize == 0) {
+        updateSync(nil, 100, totalSize, kSyncManagerUnchanged);
         return;
     }
     
@@ -475,9 +491,27 @@ static NSMutableDictionary *syncMgrList = nil;
                   updateSync:(SyncUpdateBlock)updateSync
                    failBlock:(SFSyncUpTargetErrorBlock)failBlock {
     
+    SFSyncStateMergeMode mergeMode = sync.mergeMode;
     SFSyncUpTarget *target = (SFSyncUpTarget *)sync.target;
     NSString* soupName = sync.soupName;
     NSNumber* soupEntryId = record[SOUP_ENTRY_ID];
+    NSArray *fieldList = sync.options.fieldlist;
+    
+    // Getting type and id
+    NSString* objectType = [SFJsonUtils projectIntoJson:record path:kObjectTypeField];
+    NSString* objectId = record[target.idFieldName];
+
+    // Fields to save (in the case of create or update)
+    NSMutableDictionary* fields = [NSMutableDictionary dictionary];
+    if (action == SFSyncUpTargetActionCreate || action == SFSyncUpTargetActionUpdate) {
+        for (NSString *fieldName in fieldList) {
+            if (![fieldName isEqualToString:target.idFieldName] && ![fieldName isEqualToString:target.modificationDateFieldName]) {
+                NSObject* fieldValue = [SFJsonUtils projectIntoJson:record path:fieldName];
+                if (fieldValue != nil)
+                    fields[fieldName] = fieldValue;
+            }
+        }
+    }
     
     // Delete handler
     SFSyncUpTargetCompleteBlock completeBlockDelete = ^(NSDictionary *d) {
@@ -510,34 +544,43 @@ static NSMutableDictionary *syncMgrList = nil;
         completeBlockUpdate(d);
     };
     
-    NSArray *fieldList = sync.options.fieldlist;
-    
-    // Getting type and id
-    NSString* objectType = [SFJsonUtils projectIntoJson:record path:kObjectTypeField];
-    NSString* objectId = record[target.idFieldName];
-    
-    // Fields to save (in the case of create or update)
-    NSMutableDictionary* fields = [NSMutableDictionary dictionary];
-    if (action == SFSyncUpTargetActionCreate || action == SFSyncUpTargetActionUpdate) {
-        for (NSString *fieldName in fieldList) {
-            if (![fieldName isEqualToString:target.idFieldName] && ![fieldName isEqualToString:target.modificationDateFieldName]) {
-                NSObject* fieldValue = [SFJsonUtils projectIntoJson:record path:fieldName];
-                if (fieldValue != nil)
-                    fields[fieldName] = fieldValue;
+    // Update failure handler
+    SFSyncUpTargetErrorBlock failBlockUpdate = ^ (NSError* err){
+        // Handling remotely deleted records
+        if (err.code == 404) {
+            if (mergeMode == SFSyncStateMergeModeOverwrite) {
+                [target createOnServer:objectType fields:fields completionBlock:completeBlockCreate failBlock:failBlock];
+            }
+            else {
+                // Next
+                [self syncUpOneEntry:sync recordIds:recordIds index:i+1 updateSync:updateSync failBlock:failBlock];
             }
         }
-    }
+        else {
+            failBlock(err);
+        }
+    };
     
+    // Delete failure handler
+    SFSyncUpTargetErrorBlock failBlockDelete = ^ (NSError* err){
+        // Handling remotely deleted records
+        if (err.code == 404) {
+            completeBlockDelete(nil);
+        }
+        else {
+            failBlock(err);
+        }
+    };
     
     switch(action) {
         case SFSyncUpTargetActionCreate:
             [target createOnServer:objectType fields:fields completionBlock:completeBlockCreate failBlock:failBlock];
             break;
         case SFSyncUpTargetActionUpdate:
-            [target updateOnServer:objectType objectId:objectId fields:fields completionBlock:completeBlockUpdate failBlock:failBlock];
+            [target updateOnServer:objectType objectId:objectId fields:fields completionBlock:completeBlockUpdate failBlock:failBlockUpdate];
             break;
         case SFSyncUpTargetActionDelete:
-            [target deleteOnServer:objectType objectId:objectId completionBlock:completeBlockDelete failBlock:failBlock];
+            [target deleteOnServer:objectType objectId:objectId completionBlock:completeBlockDelete failBlock:failBlockDelete];
             break;
         default:
             // Action is unsupported here.  Move on.

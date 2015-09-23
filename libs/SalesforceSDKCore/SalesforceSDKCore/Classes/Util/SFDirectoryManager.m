@@ -41,11 +41,11 @@ static NSString * const kDefaultCommunityName = @"internal";
 }
 
 + (BOOL)ensureDirectoryExists:(NSString*)directory error:(NSError**)error {
-    NSFileManager *manager = [NSFileManager defaultManager];
+    NSFileManager *manager = [[NSFileManager alloc] init];
     if (![manager fileExistsAtPath:directory]) {
         return [manager createDirectoryAtPath:directory
                   withIntermediateDirectories:YES
-                                   attributes:@{NSFileProtectionKey: NSFileProtectionComplete}
+                                   attributes:@{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication}
                                         error:error];
     } else {
         return YES;
