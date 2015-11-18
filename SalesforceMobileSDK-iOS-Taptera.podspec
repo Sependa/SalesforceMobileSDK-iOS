@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
 
   s.name         = "SalesforceMobileSDK-iOS-Taptera"
-  s.version      = "3.3.1-Taptera"
+  s.version      = "3.3.1"
   s.summary      = "Salesforce Mobile SDK for iOS"
   s.homepage     = "https://github.com/forcedotcom/SalesforceMobileSDK-iOS"
 
@@ -10,8 +10,8 @@ Pod::Spec.new do |s|
 
   s.platform     = :ios, "7.0"
 
-  s.source       = { :git => "https://github.com/Taptera/SalesforceMobileSDK-iOS.git",
-                     :tag => "#{s.version}",
+  s.source       = { :git => "https://github.com/forcedotcom/SalesforceMobileSDK-iOS.git",
+                     :tag => "pod_v#{s.version}",
                      :submodules => true }
 
   s.requires_arc = true
